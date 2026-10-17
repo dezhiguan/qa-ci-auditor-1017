@@ -1,0 +1,48 @@
+kind: Agent
+spec:
+  auth:
+    audience: qa-ci-auditor-1017
+  eval:
+    dataset: qa-ci-auditor-1017/seed
+  kind: workflow
+  audit:
+    captureFields:
+    - request_id
+  tools:
+  - name: ci.log.fetch
+    risk: low
+    access: read
+    approval: none
+  - name: git.pr.diff
+    risk: low
+    access: read
+    approval: none
+  - name: devflow.job.read
+    risk: low
+    access: read
+    approval: none
+  models:
+    budget:
+      dailyCny: 20.0
+    default: qwen-plus
+  prompts:
+    items:
+    - name: role
+      type: text
+    source: langfuse
+  runtime:
+    type: code
+    endpoint: http://qa-ci-auditor-1017.agents.svc.cluster.local:8000
+    language: python
+    liveness: k8s
+  delegates: []
+  knowledge: []
+  guardrails:
+    pii: mask
+    grounding: 'off'
+    inputInjection: enforce
+metadata:
+  name: qa-ci-auditor-1017
+  owner: 平台组 / 官德志
+  displayName: CI 与 PR 证据审计员
+apiVersion: keel/v1
