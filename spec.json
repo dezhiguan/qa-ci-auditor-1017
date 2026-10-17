@@ -1,0 +1,15 @@
+{
+  "io": "输入：repo=qa-ci-evidence-1017，runId=39009850970，PR #1，jobId=DF-0006；输出：结构化 decision、证据来源、差异摘要、阻塞原因。",
+  "goal": "按真实仓库、CI runId、PR 编号和研发任务号，调用日志、差异与任务工具，形成可追溯审计结论；缺证据必须阻塞，不自动合并或发布。",
+  "risks": [
+    "工具调用失败导致误判为 BLOCKED",
+    "输入参数错误（如 repo 名不匹配、PR number 格式错误）引发空结果未识别"
+  ],
+  "title": "CI 与 PR 证据审计员",
+  "users": "研发效能负责人用于核查独立智能体项目的 CI、PR 与研发任务证据，评估是否具备进入人工代码评审的材料。",
+  "pending": [
+    "是否需将 audit.captureFields 扩展至 runId 和 jobId 的原始字符串校验逻辑？",
+    "BLOCKED 状态是否需强制写入 devflow.stage.report？需求未明确"
+  ],
+  "success": "准确使用 ci.log.fetch(repo,runId)、git.pr.diff(repo,number)、devflow.job.read(jobId) 三种只读工具；至少调用两种。根据真实 log、diff、任务记录给出可复核结论；对象缺失、工具失败或字段不明一律 BLOCKED。提示词含职责、输入输出、证据边界、拒绝规则；不得自动合并发布。"
+}
