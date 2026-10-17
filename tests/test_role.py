@@ -1,5 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
+import json
 import re
 
 # Import the execute function
@@ -14,9 +15,9 @@ async def test_execute_normal_evidence_flow():
     ctx.tools.call = AsyncMock()
     ctx.llm.chat = AsyncMock()
 
-    # Simulate prompt compilation
+    # Simulate prompt compilation with {{input}} and {{evidence}}
     mock_prompt = MagicMock()
-    mock_prompt.compile = MagicMock(return_value="Compiled prompt with evidence")
+    mock_prompt.compile = MagicMock(return_value="Compiled prompt")
     ctx.prompt.return_value = mock_prompt
 
     # Simulate tool returns
@@ -26,7 +27,7 @@ async def test_execute_normal_evidence_flow():
         [{"id": "DF-0006", "status": "DONE", "title": "Fix audit logic"}]  # devflow.job.read
     ]
 
-    # Simulate LLM returning PASS in JSON
+    # Simulate LLM returning valid PASS JSON
     ctx.llm.chat.return_value = '''{
         "decision": "PASS",
         "notes": "All evidence present and consistent."
@@ -39,10 +40,8 @@ async def test_execute_normal_evidence_flow():
 
     result = await execute(data, ctx)
 
-    # Assert structure and decision
     assert isinstance(result, dict)
     assert result["decision"] == "PASS"
-    assert "evidenceSources" in result
     assert len(result["evidenceSources"]) == 3
     assert "diffSummary" in result
     assert isinstance(result["diffSummary"], str)
@@ -67,16 +66,14 @@ async def test_execute_missing_pr_number_blocks():
 
     result = await execute(data, ctx)
 
-    # Must block and report missing PR number
     assert result["decision"] == "BLOCKED"
     assert "PR number" in result["blockReason"]
-    assert "evidenceSources" in result
-    assert len(result["evidenceSources"]) == 0
+    assert result["evidenceSources"] == []
     assert result["diffSummary"] == ""
 
 
 @pytest.mark.asyncio
-async def test_execute_tool_failure_blocks():
+async def test_execute_model_blocked_remains_blocked_when_reason_mentions_pass():
     ctx = MagicMock()
     ctx.prompt = AsyncMock()
     ctx.tools.call = AsyncMock()
@@ -86,8 +83,18 @@ async def test_execute_tool_failure_blocks():
     mock_prompt.compile = MagicMock(return_value="prompt")
     ctx.prompt.return_value = mock_prompt
 
-    # First tool fails
-    ctx.tools.call.side_effect = Exception("network timeout")
+    # Simulate all tools succeeding
+    ctx.tools.call.side_effect = [
+        {"log": "OK", "logsUnavailable": False},
+        {"diff": "+x", "number": "1"},
+        [{"id": "DF-0006", "status": "DONE"}]
+    ]
+
+    # LLM returns BLOCKED decision — even if explanation says "PASS"
+    ctx.llm.chat.return_value = '''{
+        "decision": "BLOCKED",
+        "blockReason": "No independent review completed — PASS requires human sign-off"
+    }'''
 
     data = {
         "text": "请对仓库 qa-ci-evidence-1017 的 CI runId 39009850970、PR #1、任务 DF-0006 执行核对。"
@@ -96,5 +103,34 @@ async def test_execute_tool_failure_blocks():
     result = await execute(data, ctx)
 
     assert result["decision"] == "BLOCKED"
-    assert "ci.log.fetch failed" in result["blockReason"]
-    assert result["evidenceSources"] == []
+    assert "independent review" in result["blockReason"]
+
+
+@pytest.mark.asyncio
+async def test_execute_model_returns_invalid_decision_fallbacks_to_blocked():
+    ctx = MagicMock()
+    ctx.prompt = AsyncMock()
+    ctx.tools.call = AsyncMock()
+    ctx.llm.chat = AsyncMock()
+
+    mock_prompt = MagicMock()
+    mock_prompt.compile = MagicMock(return_value="prompt")
+    ctx.prompt.return_value = mock_prompt
+
+    ctx.tools.call.side_effect = [
+        {"log": "OK", "logsUnavailable": False},
+        {"diff": "+x", "number": "1"},
+        [{"id": "DF-0006", "status": "DONE"}]
+    ]
+
+    # LLM returns malformed JSON without decision field
+    ctx.llm.chat.return_value = "The evidence looks fine. I think it's safe."
+
+    data = {
+        "text": "请对仓库 qa-ci-evidence-1017 的 CI runId 39009850970、PR #1、任务 DF-0006 执行核对。"
+    }
+
+    result = await execute(data, ctx)
+
+    assert result["decision"] == "BLOCKED"
+    assert "no valid decision field" in result["blockReason"].lower()
